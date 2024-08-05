@@ -177,13 +177,29 @@ def analytics_and_reporting():
 
         # Inventory Optimization Suggestions
         st.write("### Inventory Optimization Suggestions")
+        
+        # Calculate recommended minimum inventory
+        filtered_data['Recommended Min Inventory'] = (filtered_data['Average Daily Usage'] * 
+                                                      filtered_data['Avg Lead Time (days)'] * 1.5)  # 1.5 as safety factor
+        
         low_inventory = filtered_data[filtered_data['Current Inventory'] < filtered_data['Min Inventory']]
         if not low_inventory.empty:
             st.warning("The following parts have inventory levels below the minimum:")
-            st.dataframe(low_inventory[['Part Number', 'Current Inventory', 'Min Inventory', 'Remaining Usage Time (Days)']])
+            st.dataframe(low_inventory[['Part Number', 'Current Inventory', 'Min Inventory', 
+                                        'Recommended Min Inventory', 'Remaining Usage Time (Days)']])
             st.write("These parts may need to be reordered soon to prevent stockouts.")
         else:
             st.success("All parts have sufficient inventory levels.")
+        
+        # Recommend inventory level adjustments
+        inventory_adjustments = filtered_data[abs(filtered_data['Min Inventory'] - filtered_data['Recommended Min Inventory']) / 
+                                              filtered_data['Recommended Min Inventory'] > 0.2]
+        if not inventory_adjustments.empty:
+            st.write("### Recommended Inventory Level Adjustments")
+            st.write("The following parts have a significant difference between current and recommended minimum inventory levels:")
+            st.dataframe(inventory_adjustments[['Part Number', 'Min Inventory', 'Recommended Min Inventory', 
+                                                'Average Daily Usage', 'Avg Lead Time (days)']])
+            st.write("Consider adjusting the minimum inventory levels for these parts based on the recommended values.")
 
     with tab2:
         st.write("### Supplier Performance and Rating")
@@ -283,16 +299,38 @@ def analytics_and_reporting():
             st.metric("Reusable Packaging Efficiency", f"{efficiency:.2f}%")
             st.write(f"On average, reusable packaging reduces lead time by {efficiency:.2f}% compared to standard lead times.")
 
-        # Suggestions for Packaging Optimization
-        st.write("### Packaging Optimization Suggestions")
-        non_reusable = filtered_data[filtered_data['Reusable Packaging'] == False]
-        high_usage_non_reusable = non_reusable[non_reusable['Usage Rate'] > non_reusable['Usage Rate'].median()]
+        # Identify underserved reusable packaging cycles
+        st.write("### Underserved Reusable Packaging Cycles")
+        supplier_packaging = filtered_data.groupby('Supplier')['Reusable Packaging'].mean()
+        underserved_suppliers = supplier_packaging[supplier_packaging < 0.5]
+        if not underserved_suppliers.empty:
+            st.write("The following suppliers have a low proportion of reusable packaging:")
+            st.dataframe(underserved_suppliers)
+            st.write("Consider increasing the use of reusable packaging with these suppliers.")
+
+        # Analyze which materials could benefit from reusable packaging
+        st.write("### Materials Suitable for Reusable Packaging")
+        material_analysis = filtered_data.groupby('Description').agg({
+            'Usage Rate': 'mean',
+            'Avg Lead Time (days)': 'mean',
+            'Reusable Packaging': 'mean'
+        }).reset_index()
         
-        if not high_usage_non_reusable.empty:
-            st.warning("The following high-usage parts are not using reusable packaging. Consider switching to reusable packaging for these items:")
-            st.dataframe(high_usage_non_reusable[['Part Number', 'Usage Rate', 'Packaging']])
-        else:
-            st.success("All high-usage parts are already using reusable packaging.")
+        material_analysis['Reusable Packaging Score'] = (
+            material_analysis['Usage Rate'] * 0.4 +
+            material_analysis['Avg Lead Time (days)'] * 0.3 +
+            (1 - material_analysis['Reusable Packaging']) * 0.3
+        )
+        
+        top_candidates = material_analysis.sort_values('Reusable Packaging Score', ascending=False).head(10)
+        st.write("Top 10 materials that could benefit from (increased) reusable packaging:")
+        st.dataframe(top_candidates)
+        st.write("These materials are good candidates for reusable packaging due to their high usage rate, long lead times, or current low use of reusable packaging.")
+        st.write("Benefits of using reusable packaging for these materials include:")
+        st.write("1. Reduced packaging waste and environmental impact")
+        st.write("2. Lower long-term packaging costs")
+        st.write("3. Improved protection for frequently transported items")
+        st.write("4. Potential for faster turnaround times in the supply chain")
 
 # Function to download data
 def download_data():
